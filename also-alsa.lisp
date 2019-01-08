@@ -287,3 +287,43 @@
      (unwind-protect
 	  (progn ,@body)
        (also-alsa:alsa-close ,stream))))
+
+
+
+(declaim (inline memcpy copy-buffer alloc-buffer free-buffer fill-from-buffer))
+(cffi:defcfun ("memcpy" aa-memcpy) :unsigned-int
+  (dest  :pointer)
+  (src   :pointer)
+  (count :unsigned-int))
+
+(defun copy-buffer (from to)
+  "Use C stdlib's memcpy to quickly copy an entire buffer to a compatible buffer."
+  (aa-memcpy (buffer to)
+             (buffer from)
+             (* (cffi:foreign-type-size (alsa-element-type (element-type to)))
+                (buffer-size to))))
+
+(defun alloc-buffer (pcm)
+  "Allocate a buffer compatible with pcm.  Must be freed with free-buffer when finished."
+  (with-slots (channels-count buffer-size) pcm
+    (foreign-alloc (alsa-element-type (element-type pcm))
+                   :count (* (cffi:foreign-type-size (alsa-element-type (element-type pcm)))
+                             buffer-size
+                             channels-count))))
+(defun free-buffer (buffer)
+  (foreign-free buffer))
+
+(defun fill-from-buffer (pcm buffer)
+  "Copy data from buffer into pcm's.
+buffer should be allocated with alloc-buffer, and later freed with free-buffer."
+  (with-slots (buffer-size element-type) pcm
+    (aa-memcpy (buffer pcm)
+               buffer
+               (* (cffi:foreign-type-size (alsa-element-type element-type))
+                  buffer-size))))
+
+(defmacro with-buffer ((buffer pcm) &body body)
+  `(let ((,buffer (also-alsa:alloc-buffer ,pcm)))
+     (unwind-protect
+          (progn ,@body)
+       (also-alsa:free-buffer ,buffer))))
